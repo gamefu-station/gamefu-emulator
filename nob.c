@@ -6,6 +6,7 @@
 #else
 #    define nob_cc_flags(cmd) nob_cmd_append((cmd), "-std=c23", "-Wall", "-Wextra", \
          "-Wno-unused", "-Wno-gnu-zero-variadic-macro-arguments", "-Wno-trigraphs", \
+         "-Wno-unused-parameter", "-Wno-unused-function", "-Wno-unused-variable",   \
          "-Werror", "-ggdb", "-Werror=return-type", "-pedantic", "-pedantic-errors", "-fsanitize=address")
 #endif
 
