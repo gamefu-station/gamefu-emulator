@@ -18,10 +18,10 @@
 /// along with this program.  If not, see <https://www.gnu.org/licenses/>.   ///
 /// ======================================================================== ///
 
-#include <gfusx/gfusx.h>
-
 #define GFUBASE_IMPLEMENTATION
 #include <gfubase/gfubase.h>
+
+#include <gfusx/gfusx.h>
 
 int main(int argc, char** argv) {
     fprintf(stderr, "Hello, GFUSX!\n");
