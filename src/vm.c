@@ -45,35 +45,33 @@ void gfusx_vm_dump_regs(gfusx_vm* vm, FILE* stream) {
     fprintf(stream, "\n");
 }
 
-// static_assert(sizeof(gfu_inst) == sizeof(u32));
-
 void gfusx_vm_step(gfusx_vm* vm) {
     u32 pc = vm->pc;
     vm->pc += 4;
 
-    uint32_t code = vm->code = *((u32*)&vm->icache_code[pc]);
-    uint32_t opcode = GFU_INST_OPCODE(code);
+    gfu_inst inst;
+    inst.raw = *((u32*)&vm->icache_code[pc]);
+    vm->code = inst.raw;
 
-    switch (opcode) {
+    switch (inst.opcode) {
         default: {
-            fprintf(stderr, "Unimplemented opcode %02X.\n", opcode);
+            fprintf(stderr, "Unimplemented opcode %02X.\n", inst.opcode);
         } break;
 
         case GFU_OPCODE_ORI: {
             // TODO(local): What if not gpr?
-            vm->gpr.r[GFU_INST_RT(code)] = vm->gpr.r[GFU_INST_RS(code)] | GFU_INST_IMM(code);
+            vm->gpr.r[inst.rt] = vm->gpr.r[inst.rs] | inst.imm;
         } break;
 
         case GFU_OPCODE_SPECIAL: {
-            uint32_t funct = GFU_INST_FUNCT(code);
-            switch (funct) {
+            switch (inst.funct) {
                 default: {
-                    fprintf(stderr, "Unimplemented SPECIAL funct %02X.\n", funct);
+                    fprintf(stderr, "Unimplemented SPECIAL funct %02X.\n", inst.funct);
                 } break;
 
                 case GFU_FUNCT_ADD: {
                     // TODO(local): What if not gpr?
-                    vm->gpr.r[GFU_INST_RD(code)] = vm->gpr.r[GFU_INST_RS(code)] + vm->gpr.r[GFU_INST_RT(code)];
+                    vm->gpr.r[inst.rd] = vm->gpr.r[inst.rs] + vm->gpr.r[inst.rt];
                 } break;
             }
         } break;
