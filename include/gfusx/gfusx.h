@@ -22,5 +22,23 @@
 #define GFUSX_H_
 
 #include <gfubase/gfubase.h>
+#include <gfuarch/gfuarch.h>
+
+/// ======================================================================== ///
+/// Virtual Machine State.                                                   ///
+/// ======================================================================== ///
+
+typedef struct gfusx_cop {
+    u32 r[GFU_REG_COUNT];
+} gfusx_cop;
+
+typedef struct gfusx_vm {
+    gfusx_cop cop0;
+    gfusx_cop cop2;
+} gfusx_vm;
+
+void gfusx_vm_power_on(gfusx_vm* vm);
+void gfusx_vm_power_off(gfusx_vm* vm);
+void gfusx_vm_step(gfusx_vm* vm);
 
 #endif /* GFUSX_H_ */
