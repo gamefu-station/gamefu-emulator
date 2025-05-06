@@ -1,3 +1,6 @@
 [submodule "include/gfubase"]
 	path = include/gfubase
 	url = git@github.com:gamefu-station/gamefu-gfubase.h.git
+[submodule "include/gfuarch"]
+	path = include/gfuarch
+	url = git@github.com:gamefu-station/gamefu-gfuarch.h.git
