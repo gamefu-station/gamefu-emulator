@@ -144,6 +144,10 @@ static bool build_gfusx(Nob_File_Paths* include_files) {
         nob_return_defer(false);
     }
 
+    if (!build_obj("src/vm.c", ".build/vm.o", include_files, &obj_files)) {
+        nob_return_defer(false);
+    }
+
     if (!link_exe(nob_exe(".build/gfusx"), &obj_files)) {
         nob_return_defer(false);
     }

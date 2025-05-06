@@ -25,20 +25,161 @@
 #include <gfuarch/gfuarch.h>
 
 /// ======================================================================== ///
+/// Fancy Constant Values.                                                   ///
+/// ======================================================================== ///
+
+// TODO(local): This is C23 only, so if we want to support older standards we need a fallback implementation.
+#if __has_include(<stdbit.h>)
+#    include <stdbit.h>
+
+#    define GFUSX_BIG_ENDIAN __STDC_ENDIAN_BIG__
+#    define GFUSX_LITTLE_ENDIAN __STDC_ENDIAN_LITTLE__
+#    define GFUSX_NATIVE_ENDIAN __STDC_ENDIAN_NATIVE__
+#else
+// hope for the best, my guy
+#    define GFUSX_BIG_ENDIAN 0
+#    define GFUSX_LITTLE_ENDIAN 1
+#    define GFUSX_NATIVE_ENDIAN 1
+#endif
+
+#define GFUSX_IS_NATIVE_LITTLE_ENDIAN (GFUSX_NATIVE_ENDIAN == GFUSX_LITTLE_ENDIAN)
+#define GFUSX_IS_NATIVE_BIG_ENDIAN (GFUSX_NATIVE_ENDIAN == GFUSX_BIG_ENDIAN)
+#define GFUSX_IS_NATIVE_MIXED_ENDIAN (!GFUSX_IS_NATIVE_LITTLE_ENDIAN && !GFUSX_IS_NATIVE_BIG_ENDIAN)
+
+/// ======================================================================== ///
 /// Virtual Machine State.                                                   ///
 /// ======================================================================== ///
 
-typedef struct gfusx_cop {
-    u32 r[GFU_REG_COUNT];
-} gfusx_cop;
+typedef union gfusx_mips_gpregs {
+    u32 r[34];
+    struct {
+        u32 r0, at, v0, v1, a0, a1, a2, a3;
+        u32 t0, t1, t2, t3, t4, t5, t6, t7;
+        u32 s0, s1, s2, s3, s4, s5, s6, s7;
+        u32 t8, t9, k0, k1, gp, sp, fp, ra;
+        u32 hi, lo;
+    };
+} gfusx_mips_gpregs;
+
+typedef union gfusx_cop0_regs {
+    u32 r[32];
+    struct {
+        u32 index, random, entry_lo0, bpc, context, bda, pid_mask, dcic;
+        u32 bad_vaddr, bdam, entry_hi, bpcm, status, cause, epc, pr_id;
+        u32 config, ll_addr, watch_lo, watch_hi, xcontext, reserved1, reserved2, reserved3;
+        u32 reserved4, reserved5, ecc, cache_err, tag_lo, tag_hi, error_epc, reserved6;
+    };
+} gfusx_cop0_regs;
+
+/*
+
+typedef union gfusx_bytes32 {
+#if GFUSX_IS_NATIVE_BIG_ENDIAN
+    struct {
+        u8 h3, h2, h, l;
+    } b;
+    struct {
+        i8 h3, h2, h, l;
+    } sb;
+    struct {
+        u16 h, l;
+    } w;
+    struct {
+        i16 h, l;
+    } sw;
+#else
+    struct {
+        u8 l, h, h2, h3;
+    } b;
+    struct {
+        i8 l, h, h2, h3;
+    } sb;
+    struct {
+        u16 l, h;
+    } w;
+    struct {
+        i16 l, h;
+    } sw;
+#endif
+    u32 d;
+    i32 sd;
+} gfusx_bytes32;
+
+typedef struct gfusx_cop2_svector2 {
+    i16 x, y;
+} gfusx_cop2_svector2;
+
+typedef struct gfusx_cop2_svector2z {
+    i16 z, unused;
+} gfusx_cop2_svector2;
+
+typedef struct gfusx_cop2_svector3 {
+    i16 x, y, z, unused;
+} gfusx_cop2_svector3;
+
+typedef struct gfusx_cop2_cbgr {
+    u8 r, g, b, c;
+} gfusx_cop2_cbgr;
+
+typedef struct gfusx_cop2_smatrix3 {
+    i16 m11, m12, m13, m21, m22, m23, m31, m32, m33, unused;
+} gfusx_cop2_smatrix3;
+
+typedef union gfusx_cop2_data_regs {
+    u32 r[32];
+    gfusx_bytes32 p[32];
+    struct {
+        gfusx_cop2_svector3 v0, v1, v2;
+        gfusx_cop2_cbgr rgb;
+        i32 otz;
+        i32 ir0, ir1, ir2, ir3;
+        gfusx_cop2_svector2 sxy0, sxy1, sxy2, sxyp;
+        gfusx_cop2_svector2z sz0, sz1, sz2, sz3;
+        gfusx_cop2_cbgr rgb0, rgb1, rgb2;
+        i32 reserved;
+        i32 mac0, mac1, mac2, mac3;
+        u32 irgb, orgb;
+        i32 lzcs, lzcr;
+    };
+} gfusx_cop2_data_regs;
+
+typedef union gfusx_cop2_data_ctrl {
+    u32 r[32];
+    gfusx_bytes32 p[32];
+    struct {
+        gfusx_cop2_smatrix3 rmatrix;
+        i32 trx, try, trz;
+        gfusx_cop2_smatrix3 lmatrix;
+        i32 rbk, gbk, bbk;
+        gfusx_cop2_smatrix3 cmatrix;
+        i32 rfc, gfc, bfc;
+        i32 ofx, ofy;
+        i32 h;
+        i32 dqa, dqb;
+        i32 zsf3, zsf4;
+        i32 flag;
+    };
+} gfusx_cop2_data_ctrl;
+
+*/
 
 typedef struct gfusx_vm {
-    gfusx_cop cop0;
-    gfusx_cop cop2;
+    gfusx_mips_gpregs gpr;
+    gfusx_cop0_regs cop0;
+    //gfusx_cop2_data_regs cop2d;
+    //gfusx_cop2_data_ctrl cop2c;
+    u32 pc; // program counter
+    u32 code; // current instruction
+    u64 cycle;
+    u64 previous_cycles;
+    // TODO(local): etc...
+    u8 icache_addr[0x1000];
+    u8 icache_code[0x1000];
 } gfusx_vm;
 
 void gfusx_vm_power_on(gfusx_vm* vm);
 void gfusx_vm_power_off(gfusx_vm* vm);
+void gfusx_vm_dump_regs(gfusx_vm* vm, FILE* stream);
 void gfusx_vm_step(gfusx_vm* vm);
 
 #endif /* GFUSX_H_ */
