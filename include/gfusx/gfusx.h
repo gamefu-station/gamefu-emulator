@@ -46,6 +46,8 @@
 #define GFUSX_IS_NATIVE_BIG_ENDIAN (GFUSX_NATIVE_ENDIAN == GFUSX_BIG_ENDIAN)
 #define GFUSX_IS_NATIVE_MIXED_ENDIAN (!GFUSX_IS_NATIVE_LITTLE_ENDIAN && !GFUSX_IS_NATIVE_BIG_ENDIAN)
 
+#define GFUSX_CYCLE_BIAS 2
+
 /// ======================================================================== ///
 /// Virtual Machine State.                                                   ///
 /// ======================================================================== ///
@@ -163,6 +165,20 @@ typedef union gfusx_cop2_data_ctrl {
 
 */
 
+typedef enum gfusx_exception_kind {
+    GFUSX_EX_ARITHMETIC_OVERFLOW,
+} gfusx_exception_kind;
+
+typedef struct gfusx_settings {
+    struct {
+        bool debug;
+    } debug;
+} gfusx_settings;
+
+typedef enum gfusx_log_class {
+    GFUSX_LC_CPU,
+} gfusx_log_class;
+
 typedef struct gfusx_vm {
     gfusx_mips_gpregs gpr;
     gfusx_cop0_regs cop0;
@@ -175,11 +191,16 @@ typedef struct gfusx_vm {
     // TODO(local): etc...
     u8 icache_addr[0x1000];
     u8 icache_code[0x1000];
+
+    bool in_delay_slot;
+
+    gfusx_settings settings;
 } gfusx_vm;
 
 void gfusx_vm_power_on(gfusx_vm* vm);
 void gfusx_vm_power_off(gfusx_vm* vm);
 void gfusx_vm_dump_regs(gfusx_vm* vm, FILE* stream);
 void gfusx_vm_step(gfusx_vm* vm);
+void gfusx_vm_logf(gfusx_vm* vm, gfusx_log_class log_class, const char* format, ...);
 
 #endif /* GFUSX_H_ */

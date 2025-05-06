@@ -20,6 +20,29 @@
 
 #include <gfusx/gfusx.h>
 
+#if defined(__clang__) || defined(__GNUC__)
+#    define GFUSX_ALWAYS_INLINE inline __attribute__((__always_inline__))
+#else
+#    define GFUSX_ALWAYS_INLINE inline
+#endif
+
+static GFUSX_ALWAYS_INLINE void gfusx_vm_exec_code(gfusx_vm* vm);
+static GFUSX_ALWAYS_INLINE void gfusx_vm_exception(gfusx_vm* vm, gfusx_exception_kind kind, bool bd, bool cop0);
+static GFUSX_ALWAYS_INLINE void gfusx_vm_maybe_cancel_delayed_load(gfusx_vm* vm, gfu_register reg);
+static GFUSX_ALWAYS_INLINE void gfusx_vm_call_stack_set_sp(gfusx_vm* vm, u32 old_sp, u32 new_sp);
+
+void gfusx_vm_logf(gfusx_vm* vm, gfusx_log_class log_class, const char* format, ...) {
+    gfu_string message = {0};
+
+    va_list v;
+    va_start(v, format);
+    gfu_string_vsprintf(&message, format, v);
+    va_end(v);
+
+    fprintf(stderr, GFU_STR_FMT"\n", GFU_STR_ARG(message));
+    gfu_da_dealloc(&message);
+}
+
 void gfusx_vm_power_on(gfusx_vm* vm) {
     *vm = (gfusx_vm) {0};
 }
@@ -46,32 +69,96 @@ void gfusx_vm_dump_regs(gfusx_vm* vm, FILE* stream) {
 }
 
 void gfusx_vm_step(gfusx_vm* vm) {
-    u32 pc = vm->pc;
-    vm->pc += 4;
+    bool ran_delay_slot = false;
+    do {
+        // TODO(local): gfusx_read_icache(vm->pc);
+        vm->code = *((u32*)&vm->icache_code[vm->pc]);
+        vm->pc += 4;
+        vm->cycle += GFUSX_CYCLE_BIAS;
 
+        gfusx_vm_exec_code(vm);
+
+        if (vm->in_delay_slot) {
+            vm->in_delay_slot = false;
+            ran_delay_slot = true;
+            // TODO(local): intercept bios
+            // TODO(local): branch test
+        }
+
+        // TODO(local): implement delay slot stuff
+        ran_delay_slot = true;
+    } while (!ran_delay_slot); // TODO(local): && !debug
+}
+
+static GFUSX_ALWAYS_INLINE void gfusx_vm_exception(gfusx_vm* vm, gfusx_exception_kind kind, bool bd, bool cop0) {
+    // TODO(local): Exception handling.
+}
+
+static GFUSX_ALWAYS_INLINE void gfusx_vm_maybe_cancel_delayed_load(gfusx_vm* vm, gfu_register reg) {
+    // TODO(local): Maybe cancel delayed load.
+}
+
+static GFUSX_ALWAYS_INLINE void gfusx_vm_call_stack_set_sp(gfusx_vm* vm, u32 old_sp, u32 new_sp) {
+    // TODO(local): Set call stack sp.
+}
+
+#define _RS_ vm->gpr.r[inst.rs]
+#define _RT_ vm->gpr.r[inst.rt]
+#define _RD_ vm->gpr.r[inst.rd]
+
+static GFUSX_ALWAYS_INLINE void gfusx_vm_exec_code(gfusx_vm* vm) {
     gfu_inst inst;
-    inst.raw = *((u32*)&vm->icache_code[pc]);
-    vm->code = inst.raw;
+    inst.raw = vm->code;
 
     switch (inst.opcode) {
         default: {
-            fprintf(stderr, "Unimplemented opcode %02X.\n", inst.opcode);
+            gfusx_vm_logf(vm, GFUSX_LC_CPU, "Unimplemented opcode %02X.", inst.opcode);
         } break;
 
+        // rt <- rs OR imm
         case GFU_OPCODE_ORI: {
-            // TODO(local): What if not gpr?
-            vm->gpr.r[inst.rt] = vm->gpr.r[inst.rs] | inst.imm;
+            if (0 == inst.rt) return;
+            gfusx_vm_maybe_cancel_delayed_load(vm, inst.rt);
+            u32 new_value = _RS_ | inst.imm;
+            if (inst.rd == GFU_REG_SP) gfusx_vm_call_stack_set_sp(vm, _RT_, new_value);
+            _RT_ = new_value;
         } break;
 
         case GFU_OPCODE_SPECIAL: {
             switch (inst.funct) {
                 default: {
-                    fprintf(stderr, "Unimplemented SPECIAL funct %02X.\n", inst.funct);
+                    gfusx_vm_logf(vm, GFUSX_LC_CPU, "Unimplemented SPECIAL funct %02X.", inst.funct);
                 } break;
 
+                // rd <- rs + rt
                 case GFU_FUNCT_ADD: {
-                    // TODO(local): What if not gpr?
-                    vm->gpr.r[inst.rd] = vm->gpr.r[inst.rs] + vm->gpr.r[inst.rt];
+                    u32 rs = _RS_, rt = _RT_;
+                    u32 new_value = rs + rt;
+
+                    if (inst.rd == GFU_REG_SP) gfusx_vm_call_stack_set_sp(vm, _RD_, new_value);
+                    if (vm->settings.debug.debug) {
+                        bool overflow = ((rs ^ new_value) & (rt ^ new_value)) >> 31;
+                        if (overflow) {
+                            vm->pc -= 4;
+                            gfusx_vm_logf(vm, GFUSX_LC_CPU, "Signed overflow in ADD instruction from 0x%08X.", vm->pc);
+                            gfusx_vm_exception(vm, GFUSX_EX_ARITHMETIC_OVERFLOW, vm->in_delay_slot, false);
+                            return;
+                        }
+                    }
+
+                    if (inst.rd != 0) {
+                        gfusx_vm_maybe_cancel_delayed_load(vm, inst.rd);
+                        _RD_ = new_value;
+                    }
+                } break;
+
+                // rd <- rs + rt
+                case GFU_FUNCT_ADDU: {
+                    if (0 == inst.rd) return;
+                    gfusx_vm_maybe_cancel_delayed_load(vm, inst.rd);
+                    u32 new_value = _RS_ + _RT_;
+                    if (inst.rd == GFU_REG_SP) gfusx_vm_call_stack_set_sp(vm, _RD_, new_value);
+                    _RD_ = new_value;
                 } break;
             }
         } break;
