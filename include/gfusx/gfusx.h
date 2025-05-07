@@ -29,9 +29,8 @@
 /// ======================================================================== ///
 
 // TODO(local): This is C23 only, so if we want to support older standards we need a fallback implementation.
-#if __has_include(<stdbit.h>)
+#if defined(__has_include) && __has_include(<stdbit.h>)
 #    include <stdbit.h>
-
 #    define GFUSX_BIG_ENDIAN __STDC_ENDIAN_BIG__
 #    define GFUSX_LITTLE_ENDIAN __STDC_ENDIAN_LITTLE__
 #    define GFUSX_NATIVE_ENDIAN __STDC_ENDIAN_NATIVE__
@@ -179,6 +178,13 @@ typedef enum gfusx_log_class {
     GFUSX_LC_CPU,
 } gfusx_log_class;
 
+typedef struct gfusx_delayed_load_info {
+    u32 index, value, mask, pc_value;
+    bool active : 1;
+    bool pc_active : 1;
+    bool from_link : 1;
+} gfusx_delayed_load_info;
+
 typedef struct gfusx_vm {
     gfusx_mips_gpregs gpr;
     gfusx_cop0_regs cop0;
@@ -192,7 +198,10 @@ typedef struct gfusx_vm {
     u8 icache_addr[0x1000];
     u8 icache_code[0x1000];
 
-    bool in_delay_slot;
+    gfusx_delayed_load_info delayed_load_info[2];
+    u32 current_delayed_load : 1;
+    bool next_is_delay_slot : 1;
+    bool in_delay_slot : 1;
 
     gfusx_settings settings;
 } gfusx_vm;

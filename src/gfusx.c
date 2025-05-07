@@ -33,16 +33,16 @@ int main(int argc, char** argv) {
         gfu_inst_ori(GFU_REG_T0, GFU_REG_R0, 34),
         gfu_inst_ori(GFU_REG_T1, GFU_REG_R0, 35),
         gfu_inst_add(GFU_REG_T2, GFU_REG_T0, GFU_REG_T1),
+        gfu_inst_b(-1),
+        0,
     };
 
     gfusx_vm vm = {0};
     gfusx_vm_power_on(&vm);
 
-    memcpy(vm.icache_code, program, 3 * sizeof(u32));
-    for (int i = 0; i < 3; i++) {
-        gfusx_vm_step(&vm);
-        gfusx_vm_dump_regs(&vm, stderr);
-    }
+    memcpy(vm.icache_code, program, sizeof(program));
+    gfusx_vm_dump_regs(&vm, stderr);
+    gfusx_vm_step(&vm);
 
     gfusx_vm_power_off(&vm);
 

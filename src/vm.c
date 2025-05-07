@@ -30,6 +30,12 @@ static GFUSX_ALWAYS_INLINE void gfusx_vm_exec_code(gfusx_vm* vm);
 static GFUSX_ALWAYS_INLINE void gfusx_vm_exception(gfusx_vm* vm, gfusx_exception_kind kind, bool bd, bool cop0);
 static GFUSX_ALWAYS_INLINE void gfusx_vm_maybe_cancel_delayed_load(gfusx_vm* vm, gfu_register reg);
 static GFUSX_ALWAYS_INLINE void gfusx_vm_call_stack_set_sp(gfusx_vm* vm, u32 old_sp, u32 new_sp);
+static GFUSX_ALWAYS_INLINE void gfusx_vm_delayed_load(gfusx_vm* vm, gfu_register reg, u32 value, u32 mask);
+static GFUSX_ALWAYS_INLINE void gfusx_vm_delayed_pc_load(gfusx_vm* vm, u32 value, bool from_link);
+static GFUSX_ALWAYS_INLINE void gfusx_vm_do_branch(gfusx_vm* vm, u32 target, bool from_link);
+static GFUSX_ALWAYS_INLINE void gfusx_vm_potential_return_addr(gfusx_vm* vm, u32 return_addr, u32 sp);
+
+static void gfusx_vm_debug_process(u32 old_pc, u32 new_pc, u32 old_code, u32 new_code, bool linked);
 
 void gfusx_vm_logf(gfusx_vm* vm, gfusx_log_class log_class, const char* format, ...) {
     gfu_string message = {0};
@@ -71,12 +77,28 @@ void gfusx_vm_dump_regs(gfusx_vm* vm, FILE* stream) {
 void gfusx_vm_step(gfusx_vm* vm) {
     bool ran_delay_slot = false;
     do {
+        if (vm->next_is_delay_slot) {
+            vm->in_delay_slot = true;
+            vm->next_is_delay_slot = false;
+        }
+
         // TODO(local): gfusx_read_icache(vm->pc);
         vm->code = *((u32*)&vm->icache_code[vm->pc]);
         vm->pc += 4;
         vm->cycle += GFUSX_CYCLE_BIAS;
 
         gfusx_vm_exec_code(vm);
+
+        vm->current_delayed_load ^= 1;
+        gfusx_delayed_load_info* delayed_load = &vm->delayed_load_info[vm->current_delayed_load];
+        bool from_link = false;
+
+        if (delayed_load->pc_active) {
+            vm->pc = delayed_load->pc_value;
+            from_link = delayed_load->from_link;
+            delayed_load->pc_active = false;
+            delayed_load->from_link = false;
+        }
 
         if (vm->in_delay_slot) {
             vm->in_delay_slot = false;
@@ -85,8 +107,7 @@ void gfusx_vm_step(gfusx_vm* vm) {
             // TODO(local): branch test
         }
 
-        // TODO(local): implement delay slot stuff
-        ran_delay_slot = true;
+        gfusx_vm_dump_regs(vm, stderr);
     } while (!ran_delay_slot); // TODO(local): && !debug
 }
 
@@ -95,24 +116,77 @@ static GFUSX_ALWAYS_INLINE void gfusx_vm_exception(gfusx_vm* vm, gfusx_exception
 }
 
 static GFUSX_ALWAYS_INLINE void gfusx_vm_maybe_cancel_delayed_load(gfusx_vm* vm, gfu_register reg) {
-    // TODO(local): Maybe cancel delayed load.
+    u32 other = vm->current_delayed_load ^ 1;
+    if (vm->delayed_load_info[other].index == (u32)reg) {
+        vm->delayed_load_info[other].active = false;
+    }
 }
 
 static GFUSX_ALWAYS_INLINE void gfusx_vm_call_stack_set_sp(gfusx_vm* vm, u32 old_sp, u32 new_sp) {
     // TODO(local): Set call stack sp.
 }
 
+static GFUSX_ALWAYS_INLINE void gfusx_vm_delayed_load(gfusx_vm* vm, gfu_register reg, u32 value, u32 mask) {
+    gfu_assert(reg < 32);
+    gfusx_delayed_load_info* delayed_load = &vm->delayed_load_info[vm->current_delayed_load];
+    delayed_load->active = true;
+    delayed_load->index = reg;
+    delayed_load->mask = mask;
+    delayed_load->value = value;
+}
+
+static GFUSX_ALWAYS_INLINE void gfusx_vm_delayed_pc_load(gfusx_vm* vm, u32 value, bool from_link) {
+    gfusx_delayed_load_info* delayed_load = &vm->delayed_load_info[vm->current_delayed_load];
+    delayed_load->pc_active = true;
+    delayed_load->pc_value = value;
+    delayed_load->from_link = from_link;
+}
+
+static GFUSX_ALWAYS_INLINE void gfusx_vm_do_branch(gfusx_vm* vm, u32 target, bool from_link) {
+    vm->next_is_delay_slot = true;
+    gfusx_vm_delayed_pc_load(vm, target, from_link);
+}
+
+static GFUSX_ALWAYS_INLINE void gfusx_vm_potential_return_addr(gfusx_vm* vm, u32 return_addr, u32 sp) {
+    // TODO(local): Potential return address.
+}
+
 #define _RS_ vm->gpr.r[inst.rs]
 #define _RT_ vm->gpr.r[inst.rt]
 #define _RD_ vm->gpr.r[inst.rd]
+#define _JMP_TARG_ ((vm->pc & 0xF0000000) | (inst.addr << 2))
+#define _BR_TARG_ (u32)((i64)vm->pc + ((i16)inst.imm << 2))
 
 static GFUSX_ALWAYS_INLINE void gfusx_vm_exec_code(gfusx_vm* vm) {
     gfu_inst inst;
     inst.raw = vm->code;
 
+    // shortcut the NOP
+    if (inst.raw == 0) return;
+
     switch (inst.opcode) {
         default: {
             gfusx_vm_logf(vm, GFUSX_LC_CPU, "Unimplemented opcode %02X.", inst.opcode);
+        } break;
+
+        case GFU_OPCODE_JAL: {
+            gfusx_vm_maybe_cancel_delayed_load(vm, GFU_REG_RA);
+            u32 return_addr = vm->pc + 4; // +8, but the previous +4 was in the caller
+            vm->gpr.ra = return_addr;
+            gfusx_vm_do_branch(vm, _JMP_TARG_, true);
+            gfusx_vm_potential_return_addr(vm, return_addr, vm->gpr.sp);
+        } break;
+
+        case GFU_OPCODE_BEQ: {
+            if (_RS_ == _RT_) {
+                gfusx_vm_do_branch(vm, _BR_TARG_, false);
+            }
+        } break;
+
+        case GFU_OPCODE_BNE: {
+            if (_RS_ != _RT_) {
+                gfusx_vm_do_branch(vm, _BR_TARG_, false);
+            }
         } break;
 
         // rt <- rs OR imm
@@ -128,6 +202,12 @@ static GFUSX_ALWAYS_INLINE void gfusx_vm_exec_code(gfusx_vm* vm) {
             switch (inst.funct) {
                 default: {
                     gfusx_vm_logf(vm, GFUSX_LC_CPU, "Unimplemented SPECIAL funct %02X.", inst.funct);
+                } break;
+
+                // rd <- rt << shamt
+                case GFU_FUNCT_SLL: {
+                    if (0 == inst.rt) return;
+                    _RD_ = (u32)(_RT_ << inst.shamt);
                 } break;
 
                 // rd <- rs + rt
@@ -163,4 +243,7 @@ static GFUSX_ALWAYS_INLINE void gfusx_vm_exec_code(gfusx_vm* vm) {
             }
         } break;
     }
+}
+
+static void gfusx_vm_debug_process(u32 old_pc, u32 new_pc, u32 old_code, u32 new_code, bool linked) {
 }
