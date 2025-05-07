@@ -30,11 +30,11 @@ int main(int argc, char** argv) {
     fprintf(stderr, "Hello, GFUSX!\n");
 
     u32 program[] = {
-        gfu_inst_ori(GFU_REG_T0, GFU_REG_R0, 34),
-        gfu_inst_ori(GFU_REG_T1, GFU_REG_R0, 35),
-        gfu_inst_add(GFU_REG_T2, GFU_REG_T0, GFU_REG_T1),
-        gfu_inst_b(-1),
-        0,
+        GFU_INST_ORI(GFU_REG_T0, GFU_REG_R0, 34),
+        GFU_INST_ORI(GFU_REG_T1, GFU_REG_R0, 35),
+        GFU_INST_ADD(GFU_REG_T2, GFU_REG_T0, GFU_REG_T1),
+        GFU_INST_B(-1),
+        GFU_INST_NOP(),
     };
 
     gfusx_vm vm = {0};
